@@ -19,8 +19,9 @@ import android.widget.ImageView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import android.webkit.WebChromeClient;
+
 import com.getcapacitor.BridgeActivity;
-import com.getcapacitor.BridgeWebChromeClient;
 
 /**
  * تمت إضافة هذا الملف بواسطة Claude فوق قالب Capacitor الافتراضي (كان فاضي أصلاً).
@@ -102,7 +103,7 @@ public class MainActivity extends BridgeActivity {
         final WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView == null) return;
 
-        webView.setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
+        webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
