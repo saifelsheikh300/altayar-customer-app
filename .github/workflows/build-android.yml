@@ -29,6 +29,9 @@ jobs:
       - name: Add Android platform
         run: npx cap add android
 
+      - name: Add microphone permission (for voice recording)
+        run: python3 native-patch/patch_manifest_permission.py
+
       - name: Generate app icon from resources/icon.png
         run: npx capacitor-assets generate --android --iconBackgroundColor '#FD5003' --iconBackgroundColorDark '#111111' --splashBackgroundColor '#FD5003' --splashBackgroundColorDark '#FD5003'
 
