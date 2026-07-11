@@ -1,0 +1,12 @@
+{
+  "appId": "com.altayar.customer",
+  "appName": "دليفري الطيار",
+  "webDir": "www",
+  "server": {
+    "url": "https://saifelsheikh300.github.io/altayar-delivery/index.html",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
