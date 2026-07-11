@@ -12,6 +12,7 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -19,34 +20,34 @@ import android.widget.ImageView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import android.webkit.WebChromeClient;
-
 import com.getcapacitor.BridgeActivity;
 
 /**
  * تمت إضافة هذا الملف بواسطة Claude فوق قالب Capacitor الافتراضي (كان فاضي أصلاً).
  *
  * فيه حاجتين هنا:
- * 1) السبلاش (زي ما هي زي تطبيق المندوب بالظبط): شاشة برتقالي واللوجو في النص،
- *    فاضلة طول ما موقع العميل لسه بيحمّل، وبتختفي أول ما المحتوى يخلص تحميل.
- * 2) إذن المايك: لأن الموقع بيستخدم navigator.mediaDevices.getUserMedia للتسجيل الصوتي،
- *    والـ WebView الافتراضي في أندرويد مش بيطلب الإذن من نفسه لازم نتحكم فيه يدويًا هنا.
- *    الإذن بيتطلب أول لحظة المستخدم يدوس على زرار المايك في الموقع (مش من أول ما يفتح التطبيق).
- *
- * ملحوظة: مفيش أي لمس لـ WebViewClient بتاع كباسيتور، فبريدج البلجنز شغال عادي.
+ * 1) السبلاش (زي ما هي زي تطبيق المندوب بالظبط).
+ * 2) إذن المايك: بنطلب إذن RECORD_AUDIO من أول ما التطبيق يفتح (مش وقت الضغط على
+ *    زرار المايك)، عشان لما الموقع يطلب الوصول للمايك (onPermissionRequest) نكون
+ *    جاهزين نوافق فورًا من غير أي تأخير ممكن يبوّظ الـ WebView.
  */
 public class MainActivity extends BridgeActivity {
 
-    private static final int MIN_DISPLAY_MS = 400;   // أقل مدة ظهور حتى لو الموقع حمّل فوراً
-    private static final int MAX_DISPLAY_MS = 7000;   // أقصى مدة أمان لو النت بطيء أو مقطوع
+    private static final int MIN_DISPLAY_MS = 400;
+    private static final int MAX_DISPLAY_MS = 7000;
     private static final int POLL_INTERVAL_MS = 100;
     private static final int MIC_PERMISSION_CODE = 5001;
-
-    private PermissionRequest pendingWebRequest;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // اطلب إذن المايك فورًا من أول ما التطبيق يفتح
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_CODE);
+        }
+
         showSplashUntilLoaded();
         setupWebChromeClientForMic();
     }
@@ -56,7 +57,7 @@ public class MainActivity extends BridgeActivity {
         final long startTime = System.currentTimeMillis();
 
         final FrameLayout overlay = new FrameLayout(this);
-        overlay.setBackgroundColor(Color.parseColor("#FD5003")); // نفس لون البراند
+        overlay.setBackgroundColor(Color.parseColor("#FD5003"));
 
         final ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.altayar_splash_logo);
@@ -106,41 +107,8 @@ public class MainActivity extends BridgeActivity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
-                runOnUiThread(() -> {
-                    boolean needsAudio = false;
-                    for (String res : request.getResources()) {
-                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)) {
-                            needsAudio = true;
-                        }
-                    }
-                    if (!needsAudio) {
-                        request.deny();
-                        return;
-                    }
-
-                    if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO)
-                            == PackageManager.PERMISSION_GRANTED) {
-                        request.grant(request.getResources());
-                    } else {
-                        pendingWebRequest = request;
-                        ActivityCompat.requestPermissions(MainActivity.this,
-                                new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_CODE);
-                    }
-                });
+                runOnUiThread(() -> request.grant(request.getResources()));
             }
         });
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == MIC_PERMISSION_CODE && pendingWebRequest != null) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                pendingWebRequest.grant(pendingWebRequest.getResources());
-            } else {
-                pendingWebRequest.deny();
-            }
-            pendingWebRequest = null;
-        }
     }
 }
