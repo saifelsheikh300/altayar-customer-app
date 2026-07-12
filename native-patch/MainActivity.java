@@ -6,31 +6,38 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Base64;
 import android.view.Gravity;
 import android.view.ViewGroup;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
-import android.widget.Toast;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.BridgeActivity;
 
+import java.io.File;
+import java.nio.file.Files;
+
 /**
  * تمت إضافة هذا الملف بواسطة Claude فوق قالب Capacitor الافتراضي (كان فاضي أصلاً).
  *
- * فيه حاجتين هنا:
- * 1) السبلاش (زي ما هي زي تطبيق المندوب بالظبط).
- * 2) إذن المايك: بنطلب إذن RECORD_AUDIO من أول ما التطبيق يفتح (مش وقت الضغط على
- *    زرار المايك)، عشان لما الموقع يطلب الوصول للمايك (onPermissionRequest) نكون
- *    جاهزين نوافق فورًا من غير أي تأخير ممكن يبوّظ الـ WebView.
+ * فيه 3 حاجات هنا:
+ * 1) السبلاش.
+ * 2) إذن المايك لأي طلب بيجي من WebView (getUserMedia) - بيتطلب وقت الحاجة بس.
+ * 3) تسجيل صوت أصلي عن طريق أندرويد مباشرة (NativeAudioBridge) - ده الحل النهائي
+ *    لمشكلة NotReadableError اللي كانت بتحصل مع getUserMedia جوه الـ WebView.
+ *    الموقع (index.html) بيستخدمه تلقائي لو موجود، وبيرجع لطريقة المتصفح العادية
+ *    (getUserMedia) لو مش موجود - يعني كروم لوحده هيفضل شغال زي ما هو بالظبط.
  */
 public class MainActivity extends BridgeActivity {
 
@@ -40,12 +47,17 @@ public class MainActivity extends BridgeActivity {
     private static final int MIC_PERMISSION_CODE = 5001;
 
     private PermissionRequest pendingWebRequest;
+    private String pendingNativeFieldId;
+
+    private MediaRecorder nativeRecorder;
+    private String nativeRecordingPath;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         showSplashUntilLoaded();
         setupWebChromeClientForMic();
+        setupNativeAudioBridge();
         disableWebViewCache();
     }
 
@@ -59,8 +71,6 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
-        // نعيد ضبط WebChromeClient تاني هنا كإجراء احترازي، لاحتمال إن كباسيتور
-        // بيرجعه لإعداداته الافتراضية بعد onCreate في بعض الحالات
         setupWebChromeClientForMic();
         disableWebViewCache();
     }
@@ -68,13 +78,20 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == MIC_PERMISSION_CODE && pendingWebRequest != null) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                pendingWebRequest.grant(pendingWebRequest.getResources());
-            } else {
-                pendingWebRequest.deny();
-            }
+        if (requestCode != MIC_PERMISSION_CODE) return;
+
+        boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+
+        if (pendingWebRequest != null) {
+            if (granted) pendingWebRequest.grant(pendingWebRequest.getResources());
+            else pendingWebRequest.deny();
             pendingWebRequest = null;
+        }
+
+        if (pendingNativeFieldId != null) {
+            String fieldId = pendingNativeFieldId;
+            pendingNativeFieldId = null;
+            if (granted) startNativeRecording(fieldId);
         }
     }
 
@@ -145,5 +162,74 @@ public class MainActivity extends BridgeActivity {
                 });
             }
         });
+    }
+
+    // ── تسجيل صوت أصلي (بديل getUserMedia) ──────────────────────────────
+
+    private void setupNativeAudioBridge() {
+        final WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView == null) return;
+        webView.addJavascriptInterface(new NativeAudioBridge(), "NativeAudio");
+    }
+
+    public class NativeAudioBridge {
+        @JavascriptInterface
+        public void startRecording(final String fieldId) {
+            runOnUiThread(() -> {
+                if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO)
+                        == PackageManager.PERMISSION_GRANTED) {
+                    startNativeRecording(fieldId);
+                } else {
+                    pendingNativeFieldId = fieldId;
+                    ActivityCompat.requestPermissions(MainActivity.this,
+                            new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_CODE);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopRecording(final String fieldId) {
+            runOnUiThread(() -> stopNativeRecording(fieldId));
+        }
+    }
+
+    private void startNativeRecording(String fieldId) {
+        try {
+            File file = File.createTempFile("rec_", ".m4a", getCacheDir());
+            nativeRecordingPath = file.getAbsolutePath();
+
+            nativeRecorder = new MediaRecorder();
+            nativeRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            nativeRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            nativeRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            nativeRecorder.setOutputFile(nativeRecordingPath);
+            nativeRecorder.prepare();
+            nativeRecorder.start();
+        } catch (Exception e) {
+            nativeRecorder = null;
+        }
+    }
+
+    private void stopNativeRecording(String fieldId) {
+        try {
+            if (nativeRecorder != null) {
+                nativeRecorder.stop();
+                nativeRecorder.release();
+                nativeRecorder = null;
+            }
+            byte[] bytes = Files.readAllBytes(new File(nativeRecordingPath).toPath());
+            String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+            sendResultToJs(fieldId, base64);
+        } catch (Exception e) {
+            sendResultToJs(fieldId, "");
+        }
+    }
+
+    private void sendResultToJs(String fieldId, String base64) {
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView == null) return;
+        String js = "window.onNativeAudioResult && window.onNativeAudioResult('"
+                + fieldId + "','" + base64 + "')";
+        webView.evaluateJavascript(js, null);
     }
 }
