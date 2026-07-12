@@ -39,16 +39,11 @@ public class MainActivity extends BridgeActivity {
     private static final int POLL_INTERVAL_MS = 100;
     private static final int MIC_PERMISSION_CODE = 5001;
 
+    private PermissionRequest pendingWebRequest;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        // اطلب إذن المايك فورًا من أول ما التطبيق يفتح
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_CODE);
-        }
-
         showSplashUntilLoaded();
         setupWebChromeClientForMic();
         disableWebViewCache();
@@ -68,6 +63,19 @@ public class MainActivity extends BridgeActivity {
         // بيرجعه لإعداداته الافتراضية بعد onCreate في بعض الحالات
         setupWebChromeClientForMic();
         disableWebViewCache();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == MIC_PERMISSION_CODE && pendingWebRequest != null) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                pendingWebRequest.grant(pendingWebRequest.getResources());
+            } else {
+                pendingWebRequest.deny();
+            }
+            pendingWebRequest = null;
+        }
     }
 
     private void showSplashUntilLoaded() {
@@ -126,8 +134,14 @@ public class MainActivity extends BridgeActivity {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, "📢 وصل طلب إذن المايك من الموقع", Toast.LENGTH_LONG).show();
-                    request.grant(request.getResources());
+                    if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO)
+                            == PackageManager.PERMISSION_GRANTED) {
+                        request.grant(request.getResources());
+                    } else {
+                        pendingWebRequest = request;
+                        ActivityCompat.requestPermissions(MainActivity.this,
+                                new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_CODE);
+                    }
                 });
             }
         });
