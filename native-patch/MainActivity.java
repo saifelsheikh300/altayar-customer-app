@@ -16,6 +16,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.Toast;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -49,6 +50,14 @@ public class MainActivity extends BridgeActivity {
         }
 
         showSplashUntilLoaded();
+        setupWebChromeClientForMic();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // نعيد ضبط WebChromeClient تاني هنا كإجراء احترازي، لاحتمال إن كباسيتور
+        // بيرجعه لإعداداته الافتراضية بعد onCreate في بعض الحالات
         setupWebChromeClientForMic();
     }
 
@@ -107,7 +116,10 @@ public class MainActivity extends BridgeActivity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
-                runOnUiThread(() -> request.grant(request.getResources()));
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "📢 وصل طلب إذن المايك من الموقع", Toast.LENGTH_LONG).show();
+                    request.grant(request.getResources());
+                });
             }
         });
     }
