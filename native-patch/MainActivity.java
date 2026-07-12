@@ -59,6 +59,7 @@ public class MainActivity extends BridgeActivity {
         if (webView == null) return;
         webView.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
         webView.clearCache(true);
+    }
 
     @Override
     public void onResume() {
