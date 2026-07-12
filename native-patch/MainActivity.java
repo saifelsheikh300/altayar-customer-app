@@ -51,7 +51,14 @@ public class MainActivity extends BridgeActivity {
 
         showSplashUntilLoaded();
         setupWebChromeClientForMic();
+        disableWebViewCache();
     }
+
+    private void disableWebViewCache() {
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView == null) return;
+        webView.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
+        webView.clearCache(true);
 
     @Override
     public void onResume() {
@@ -59,6 +66,7 @@ public class MainActivity extends BridgeActivity {
         // نعيد ضبط WebChromeClient تاني هنا كإجراء احترازي، لاحتمال إن كباسيتور
         // بيرجعه لإعداداته الافتراضية بعد onCreate في بعض الحالات
         setupWebChromeClientForMic();
+        disableWebViewCache();
     }
 
     private void showSplashUntilLoaded() {
